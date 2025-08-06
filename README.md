@@ -1,5 +1,7 @@
-# 🎬 Klisse Desktop
-
+# Klisse
+<p align="center">
+  <img src="./klisse.png" alt="KLISSSSSSSE" width="35%">
+</p>
 **Find common movies from multiple Letterboxd users' watchlists**
 
 A fast, native desktop application that helps you discover movies that everyone in your group wants to watch. Perfect for movie nights, film clubs, or just finding your next shared viewing experience!
