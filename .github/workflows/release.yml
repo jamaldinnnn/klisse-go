@@ -13,10 +13,6 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     
     runs-on: ${{ matrix.os }}
-    
-    outputs:
-      release_name: ${{ steps.prepare.outputs.release_name }}
-      release_path: ${{ steps.prepare.outputs.release_path }}
 
     steps:
     - name: Checkout code
@@ -37,18 +33,30 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
-        # Create compatibility for webkit2gtk-4.0
+        
+        # Ensure webkit2gtk-4.0 compatibility for older Wails versions
         if ! pkg-config --exists webkit2gtk-4.0; then
+          echo "Creating webkit2gtk-4.0 compatibility..."
           sudo mkdir -p /usr/lib/x86_64-linux-gnu/pkgconfig
-          # Create a compatibility .pc file for webkit2gtk-4.0 pointing to 4.1
-          sudo cp /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
-          sudo sed -i 's/webkit2gtk-4\.1/webkit2gtk-4.0/g' /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
+          
+          # Create a compatibility .pc file
+          sudo cp /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc || true
+          if [ -f /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc ]; then
+            sudo sed -i 's/webkit2gtk-4\.1/webkit2gtk-4.0/g' /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
+          fi
+          
+          # Create library symlinks for the linker
+          for lib in /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so*; do
+            if [ -f "$lib" ]; then
+              target_lib=$(echo "$lib" | sed 's/4\.1/4.0/g')
+              sudo ln -sf "$lib" "$target_lib" || true
+              echo "Created symlink: $lib -> $target_lib"
+            fi
+          done
         fi
-        # Create library symlinks for linker
-        if [ ! -f /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so ]; then
-          sudo ln -sf /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so* /usr/lib/x86_64-linux-gnu/ || true
-          sudo find /usr/lib/x86_64-linux-gnu/ -name "libwebkit2gtk-4.1.so*" -exec bash -c 'sudo ln -sf "$1" "${1/4.1/4.0}"' _ {} \; || true
-        fi
+        
+        # Verify the setup
+        pkg-config --exists webkit2gtk-4.0 && echo "webkit2gtk-4.0 is available" || echo "WARNING: webkit2gtk-4.0 still not found"
     
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
@@ -56,27 +64,34 @@ jobs:
     - name: Build Wails app
       run: wails build -clean
     
-    - name: Prepare artifact info
-      id: prepare
+    - name: Prepare artifact info (Windows)
+      if: matrix.os == 'windows-latest'
+      id: prepare-windows
+      shell: pwsh
       run: |
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          echo "release_name=klisse-windows-amd64.exe" >> $GITHUB_OUTPUT
-          echo "release_path=build/bin/klisse.exe" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          echo "release_name=klisse-linux-amd64" >> $GITHUB_OUTPUT
-          echo "release_path=build/bin/klisse" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-          # Zip the .app for easier distribution
-          ditto -c -k --sequesterRsrc --keepParent build/bin/klisse.app klisse-macos-universal.zip
-          echo "release_name=klisse-macos-universal.zip" >> $GITHUB_OUTPUT
-          echo "release_path=klisse-macos-universal.zip" >> $GITHUB_OUTPUT
-        fi
+        echo "release_name=klisse-windows-amd64.exe" >> $env:GITHUB_OUTPUT
+        echo "release_path=build/bin/klisse.exe" >> $env:GITHUB_OUTPUT
+    
+    - name: Prepare artifact info (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      id: prepare-linux
+      run: |
+        echo "release_name=klisse-linux-amd64" >> $GITHUB_OUTPUT
+        echo "release_path=build/bin/klisse" >> $GITHUB_OUTPUT
+    
+    - name: Prepare artifact info (macOS)
+      if: matrix.os == 'macos-latest'
+      id: prepare-macos
+      run: |
+        ditto -c -k --sequesterRsrc --keepParent build/bin/klisse.app klisse-macos-universal.zip
+        echo "release_name=klisse-macos-universal.zip" >> $GITHUB_OUTPUT
+        echo "release_path=klisse-macos-universal.zip" >> $GITHUB_OUTPUT
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ steps.prepare.outputs.release_name }}
-        path: ${{ steps.prepare.outputs.release_path }}
+        name: ${{ steps.prepare-windows.outputs.release_name || steps.prepare-linux.outputs.release_name || steps.prepare-macos.outputs.release_name }}
+        path: ${{ steps.prepare-windows.outputs.release_path || steps.prepare-linux.outputs.release_path || steps.prepare-macos.outputs.release_path }}
 
   release:
     needs: build
