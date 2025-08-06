@@ -10,14 +10,12 @@ jobs:
   build:
     strategy:
       matrix:
-        platform: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
     
     steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: recursive
+    - uses: actions/checkout@v4
     
     - name: Setup Go
       uses: actions/setup-go@v4
@@ -25,44 +23,50 @@ jobs:
         go-version: '1.21'
     
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
+    
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
     
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
     
     - name: Build Wails app
-      run: |
-        wails build -clean -platform ${{ matrix.platform == 'ubuntu-latest' && 'linux/amd64' || matrix.platform == 'windows-latest' && 'windows/amd64' || 'darwin/universal' }}
+      run: wails build -clean
     
-    - name: Create artifact name
-      id: artifact
+    - name: Prepare artifacts (Windows)
+      if: matrix.os == 'windows-latest'
       run: |
-        if [ "${{ matrix.platform }}" == "windows-latest" ]; then
-          echo "name=klisse-windows-amd64" >> $GITHUB_OUTPUT
-          echo "path=build/bin/klisse.exe" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.platform }}" == "ubuntu-latest" ]; then
-          echo "name=klisse-linux-amd64" >> $GITHUB_OUTPUT
-          echo "path=build/bin/klisse" >> $GITHUB_OUTPUT
-        else
-          echo "name=klisse-macos-universal" >> $GITHUB_OUTPUT
-          echo "path=build/bin/klisse.app" >> $GITHUB_OUTPUT
-        fi
-      shell: bash
+        echo "artifact_name=klisse-windows-amd64" >> $GITHUB_ENV
+        echo "artifact_path=build/bin/klisse.exe" >> $GITHUB_ENV
+    
+    - name: Prepare artifacts (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        echo "artifact_name=klisse-linux-amd64" >> $GITHUB_ENV  
+        echo "artifact_path=build/bin/klisse" >> $GITHUB_ENV
+    
+    - name: Prepare artifacts (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        echo "artifact_name=klisse-macos-universal" >> $GITHUB_ENV
+        echo "artifact_path=build/bin/klisse.app" >> $GITHUB_ENV
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: ${{ steps.artifact.outputs.name }}
-        path: ${{ steps.artifact.outputs.path }}
+        name: ${{ env.artifact_name }}
+        path: ${{ env.artifact_path }}
     
-    - name: Create Release
+    - name: Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v1
       with:
-        files: ${{ steps.artifact.outputs.path }}
-        draft: false
-        prerelease: false
+        files: ${{ env.artifact_path }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
