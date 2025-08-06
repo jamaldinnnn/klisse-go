@@ -1,0 +1,68 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, windows-latest, macos-latest]
+        
+    runs-on: ${{ matrix.platform }}
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install Wails
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+    
+    - name: Build Wails app
+      run: |
+        wails build -clean -platform ${{ matrix.platform == 'ubuntu-latest' && 'linux/amd64' || matrix.platform == 'windows-latest' && 'windows/amd64' || 'darwin/universal' }}
+    
+    - name: Create artifact name
+      id: artifact
+      run: |
+        if [ "${{ matrix.platform }}" == "windows-latest" ]; then
+          echo "name=klisse-windows-amd64" >> $GITHUB_OUTPUT
+          echo "path=build/bin/klisse.exe" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform }}" == "ubuntu-latest" ]; then
+          echo "name=klisse-linux-amd64" >> $GITHUB_OUTPUT
+          echo "path=build/bin/klisse" >> $GITHUB_OUTPUT
+        else
+          echo "name=klisse-macos-universal" >> $GITHUB_OUTPUT
+          echo "path=build/bin/klisse.app" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ steps.artifact.outputs.name }}
+        path: ${{ steps.artifact.outputs.path }}
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ steps.artifact.outputs.path }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

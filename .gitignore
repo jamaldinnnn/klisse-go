@@ -1,0 +1,26 @@
+# Build output
+build/bin/
+dist/
+
+# Dependencies  
+node_modules/
+frontend/node_modules/
+
+# Wails generated
+frontend/wailsjs/
+frontend/dist/
+frontend/package-lock.json
+frontend/package.json.md5
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# Logs & env
+*.log
+.env
